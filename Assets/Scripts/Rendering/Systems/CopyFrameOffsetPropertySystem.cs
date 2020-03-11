@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -12,19 +13,20 @@ using Hash128 = Unity.Entities.Hash128;
 
 namespace Unity.Rendering
 {
-    public class CopyFrameOffsetProperty : JobComponentSystem
+    public class CopyFrameOffsetPropertySystem : JobComponentSystem
     {
         private unsafe class PropertyData : IDisposable
         {
-            private static readonly int NameId = Shader.PropertyToID("_FrameOffset");
+            private static readonly int NameId = Shader.PropertyToID("_SkinMatricesOffset");
             private const int SizeOfValue = sizeof(float);
             
             private int size;
             private int capacity;
             private float defaultValue;
             
-            private NativeArray<float> values;
-            private ComputeBuffer computeBuffer;
+            private float[] values;
+            private ComputeBuffer buffer;
+            private GCHandle handler;
             private JobHandle prevJobHandle;
             
             internal PropertyData(int newCapacity, float newDefaultValue = 0)
@@ -34,16 +36,17 @@ namespace Unity.Rendering
                 defaultValue = newDefaultValue;
                 prevJobHandle = default;
                 
-                values = new NativeArray<float>(capacity, Allocator.Persistent);
-                computeBuffer = new ComputeBuffer(capacity, sizeof(float));
+                values = new float[newCapacity];
+                buffer = new ComputeBuffer(newCapacity, sizeof(float));
+                handler = GCHandle.Alloc(values, GCHandleType.Pinned);
             }
 
             internal void SetData(Material material)
             {
                 prevJobHandle.Complete();
                 
-                computeBuffer.SetData(values, 0, 0, size);
-                material.SetBuffer(NameId, computeBuffer);
+                buffer.SetData(values, 0, 0, size);
+                material.SetBuffer(NameId, buffer);
             }
 
             internal JobHandle Schedule(EntityQuery entityQuery, ComponentSystemBase system, JobHandle jobHandle)
@@ -51,11 +54,16 @@ namespace Unity.Rendering
                 size = entityQuery.CalculateEntityCount();
                 if (capacity < size)
                 {
-                    capacity = 2 * size;
-                    values.Dispose(jobHandle);
-                    values = new NativeArray<float>(capacity, Allocator.Persistent);
-                    computeBuffer.Dispose();
-                    computeBuffer = new ComputeBuffer(capacity, sizeof(float));
+                    // Extend capacity if needed 
+                    capacity = size;
+                    
+                    values = new float[capacity];
+                    
+                    buffer.Dispose();
+                    buffer = new ComputeBuffer(capacity, sizeof(float));
+                    
+                    handler.Dispose();
+                    handler = GCHandle.Alloc(values, GCHandleType.Pinned);
                 }
                 
                 return prevJobHandle = new FillArrayJob
@@ -64,14 +72,14 @@ namespace Unity.Rendering
                     dynamicType = system.GetArchetypeChunkComponentTypeDynamic(ComponentType.ReadOnly<BoneIndexOffset>()),
                             
                     defaultValue = UnsafeUtility.AddressOf(ref defaultValue),
-                    dst = values.GetUnsafePtr(),
+                    dst = (void*) handler.AddrOfPinnedObject(),
                 }.Schedule(entityQuery, jobHandle);
             }
             
             public void Dispose()
             {
-                values.Dispose();
-                computeBuffer.Dispose();
+                handler.Dispose();
+                buffer.Dispose();
             }
         }
 
@@ -170,7 +178,7 @@ namespace Unity.Rendering
         }
 
         [BurstCompile]
-        internal unsafe struct FillArrayJob : IJobChunk
+        private unsafe struct FillArrayJob : IJobChunk
         {
             [ReadOnly] public int sizeOfValue;
             [ReadOnly] public ArchetypeChunkComponentTypeDynamic dynamicType;

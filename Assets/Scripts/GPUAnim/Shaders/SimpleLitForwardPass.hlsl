@@ -3,9 +3,7 @@
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
-#if UNITY_ANY_INSTANCING_ENABLED
-    #include "AnimationCore.hlsl"
-#endif
+#include "AnimationCore.hlsl"
 
 struct Attributes
 {
@@ -44,11 +42,17 @@ struct Varyings
     UNITY_VERTEX_INPUT_INSTANCE_ID
     UNITY_VERTEX_OUTPUT_STEREO
 };
-
+/**
 #if UNITY_ANY_INSTANCING_ENABLED
-    Buffer<float> _FrameOffset;
+#if UNITY_INSTANCING_ANIMATIO_ARRAY
+    UNITY_INSTANCING_BUFFER_START(Props)
+        UNITY_DEFINE_INSTANCED_PROP(float,  _SkinMatricesOffset)
+    UNITY_INSTANCING_BUFFER_END(Props)    
+#else    
+    Buffer<float> _SkinMatricesOffset;
+#endif    
 #endif
-
+**/
 void InitializeInputData(Varyings input, half3 normalTS, out InputData inputData)
 {
     inputData.positionWS = input.posWS;
@@ -92,17 +96,22 @@ Varyings LitPassVertexSimple(Attributes input)
     UNITY_SETUP_INSTANCE_ID(input);
     UNITY_TRANSFER_INSTANCE_ID(input, output);
     UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-
-#if UNITY_ANY_INSTANCING_ENABLED
-    float frameOffset = _FrameOffset[input.instanceID];
-    float4x4 animationMatrix = AnimationMatrix(input.animtionUV, frameOffset);
-    float4 positionOS = mul(animationMatrix, input.positionOS);
-#else      
-    float4 positionOS = input.positionOS;
-#endif
+    
+    float4 positionOS;
+    float4 normalOS;
+    float4 tangentOS;
+    
+    updateVectors_float(
+        input.animtionUV, 
+        input.positionOS, 
+        float4(input.normalOS,0), 
+        input.tangentOS,
+        positionOS, 
+        normalOS, 
+        tangentOS);
 
     VertexPositionInputs vertexInput = GetVertexPositionInputs(positionOS.xyz);
-    VertexNormalInputs normalInput = GetVertexNormalInputs(input.normalOS, input.tangentOS);
+    VertexNormalInputs normalInput = GetVertexNormalInputs(normalOS, tangentOS);
     half3 viewDirWS = GetCameraPositionWS() - vertexInput.positionWS;
     half3 vertexLight = VertexLighting(vertexInput.positionWS, normalInput.normalWS);
     half fogFactor = ComputeFogFactor(vertexInput.positionCS.z);

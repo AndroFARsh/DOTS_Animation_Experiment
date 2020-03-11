@@ -8,7 +8,7 @@ namespace System.Runtime.InteropServices
             {
                 handle.Free();
             }
-            catch (Exception e)
+            catch (Exception)
             {
             }
         }
