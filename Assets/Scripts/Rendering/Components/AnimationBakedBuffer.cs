@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using AnimBakery.Cook;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using UnityEngine;
@@ -7,24 +9,15 @@ namespace Unity.Rendering
 { 
     public struct AnimationBakedBuffer : ISharedComponentData, IEquatable<AnimationBakedBuffer>
     {
-#if UNITY_EDITOR
-        public readonly int Length; 
-#endif
         private readonly Vector4[] Value;
+
+        public int Length => Value?.Length ?? 0;
 
         public AnimationBakedBuffer(Vector4[] value)
         {
             Value = value;
-            Length = value.Length;
         } 
-
-        public ComputeBuffer ToBuffer()
-        {
-            var buffer = new ComputeBuffer(Value.Length, UnsafeUtility.SizeOf(typeof(Vector4)));
-            buffer.SetData(Value);
-            return buffer;
-        }
-
+        
         public bool Equals(AnimationBakedBuffer other)
         {
             if (Value == other.Value)
@@ -49,6 +42,14 @@ namespace Unity.Rendering
 
             return hash;
         }
-        
+
+        public void SetPixels(Texture2D texture)
+        {
+            for (var index=0; index<Length; ++index)
+            {
+                var xy = BakeryUtils.To2D(index, texture.width);
+                texture.SetPixel(xy.x, xy.y, Value[index]);
+            }
+        }
     }
 }

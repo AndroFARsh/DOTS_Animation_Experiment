@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using AnimBakery.Cook;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
 using Hash128 = UnityEngine.Hash128;
@@ -32,6 +33,9 @@ namespace Unity.Rendering
 
     internal static class AnimUtils
     {
+        private static readonly int AnimationsNameId = Shader.PropertyToID("_Animations");
+        private static readonly int AnimationsSizeNameId = Shader.PropertyToID("_AnimationsSize");
+        
         private static readonly Dictionary<Hash128, Material> sharedMaterial = new Dictionary<Hash128, Material>();
         private static readonly Dictionary<Hash128, Mesh> sharedMesh = new Dictionary<Hash128, Mesh>();
         
@@ -92,8 +96,21 @@ namespace Unity.Rendering
                         }
                         if (!sharedMaterial.ContainsKey(renderMeshKey))
                         {
+                            var size = BakeryUtils.NextPowerOfTwo((int) math.sqrt(animationBakedBuffer.Length));
+                            var texture = new Texture2D(size, size, TextureFormat.RGBAFloat,
+                                false)
+                            {
+                                wrapMode = TextureWrapMode.Clamp,
+                                filterMode = FilterMode.Point,
+                                anisoLevel = 0,
+                            };
+                            animationBakedBuffer.SetPixels(texture);
+                            texture.Apply(false, false);
+                            
                             var material = Object.Instantiate(renderMesh.material);
-                            material.SetBuffer("_AnimationsBuffer", animationBakedBuffer.ToBuffer());
+                            material.SetTexture(AnimationsNameId, texture);
+                            material.SetVector(AnimationsSizeNameId, new Vector4(size, size));
+                            
                             sharedMaterial.Add(renderMeshKey, material);
                         }
 

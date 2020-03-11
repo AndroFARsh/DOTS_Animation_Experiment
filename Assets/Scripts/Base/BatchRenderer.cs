@@ -12,16 +12,14 @@ public class BatchRenderer : MonoBehaviour
     [SerializeField] private GameObject[] prefabs;
     [SerializeField] private int split = 10;
 
-    private BatchRendererGroup _batchRendererGroup;
-
-    private JobHandle _jobDependency;
-
-    private List<int> _batchIndex;
+    private BatchRendererGroup batchRendererGroup;
+    private JobHandle jobDependency;
+    private List<int> batchIndexes;
 
     private void OnEnable()
     {
-        _batchRendererGroup = new BatchRendererGroup(CullingCallback);
-        _batchIndex = new List<int>(10);
+        batchRendererGroup = new BatchRendererGroup(CullingCallback);
+        batchIndexes = new List<int>(10);
 
         foreach (var prefab in prefabs)
             SetupBatch(prefab);
@@ -50,7 +48,7 @@ public class BatchRenderer : MonoBehaviour
             var mesh = GetMesh(renderer);
             foreach (var material in materials)
             {
-                _batchIndex.Add(_batchRendererGroup.AddBatch(
+                batchIndexes.Add(batchRendererGroup.AddBatch(
                     mesh,
                     0,
                     material,
@@ -68,32 +66,32 @@ public class BatchRenderer : MonoBehaviour
 
     private void OnDisable()
     {
-        _batchIndex.Clear();
-        _batchRendererGroup.Dispose();
+        batchIndexes.Clear();
+        batchRendererGroup.Dispose();
     }
 
     private void Update()
     {
-        _jobDependency.Complete();
+        jobDependency.Complete();
 
-        var jobHandlers = new NativeList<JobHandle>(_batchIndex.Count, Allocator.Temp);
-        foreach (var batchIndex in _batchIndex)
+        var jobHandlers = new NativeList<JobHandle>(batchIndexes.Count, Allocator.Temp);
+        foreach (var batchIndex in batchIndexes)
         {
             jobHandlers.Add(new UpdateMatrixJob
             {
-                Matrices = _batchRendererGroup.GetBatchMatrices(batchIndex),
+                Matrices = batchRendererGroup.GetBatchMatrices(batchIndex),
                 Time = Time.time,
                 Split = split
             }.Schedule(split * split * split, 16));
         }
 
-        _jobDependency = JobHandle.CombineDependencies(jobHandlers);
+        jobDependency = JobHandle.CombineDependencies(jobHandlers);
         jobHandlers.Dispose();
     }
 
     private JobHandle CullingCallback(BatchRendererGroup rendererGroup, BatchCullingContext cullingContext)
     {
-        _jobDependency.Complete();
+        jobDependency.Complete();
         for (var batchIndex=0;  batchIndex<cullingContext.batchVisibility.Length ; ++batchIndex)
         {
             var batchVisibility = cullingContext.batchVisibility[batchIndex];
